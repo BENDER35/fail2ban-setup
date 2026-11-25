@@ -22,13 +22,13 @@ tag:
 release: tag
 	mkdir -p $(DIST_DIR)
 	git archive --format=zip --prefix=fail2ban-setup-$(TAG)/ -o $(DIST_DIR)/$(ZIP_NAME) HEAD
-	gh release view $(TAG) >/dev/null 2>&1 && \
-		gh release upload $(TAG) $(DIST_DIR)/$(ZIP_NAME) --clobber || \
-		gh release create $(TAG) $(DIST_DIR)/$(ZIP_NAME) \
+	gh release view $(TAG) -R BENDER35/fail2ban-setup >/dev/null 2>&1 && \
+		gh release upload $(TAG) $(DIST_DIR)/$(ZIP_NAME) -R BENDER35/fail2ban-setup --clobber || \
+		gh release create $(TAG) $(DIST_DIR)/$(ZIP_NAME) -R BENDER35/fail2ban-setup \
 			--title "$(TAG)" --notes-file RELEASE_NOTES.md
-	glab release view $(TAG) >/dev/null 2>&1 && \
-		glab release upload $(TAG) $(DIST_DIR)/$(ZIP_NAME) || \
-		glab release create $(TAG) $(DIST_DIR)/$(ZIP_NAME) \
+	glab release view $(TAG) -R BENDER_5000/fail2ban-setup >/dev/null 2>&1 && \
+		glab release upload $(TAG) $(DIST_DIR)/$(ZIP_NAME) -R BENDER_5000/fail2ban-setup || \
+		glab release create $(TAG) $(DIST_DIR)/$(ZIP_NAME) -R BENDER_5000/fail2ban-setup \
 			--name "$(TAG)" --notes-file RELEASE_NOTES.md
 
 clean:
