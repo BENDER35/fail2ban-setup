@@ -1,0 +1,95 @@
+name: Mirror GitHub -> GitLab
+
+on:
+  push:
+    branches:
+      - '**'
+    tags:
+      - '**'
+  workflow_dispatch:
+
+concurrency:
+  group: mirror-to-gitlab
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    name: Push safe mirror to GitLab
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify secret
+        env:
+          GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
+        run: |
+          if [[ -z "${GITLAB_TOKEN:-}" ]]; then
+            echo "::error::The GITLAB_TOKEN secret is missing. Add a GitLab PAT with write_repository scope."
+            exit 1
+          fi
+
+      - name: Mirror branches and tags (no force push)
+        shell: bash
+        env:
+          GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          REMOTE="https://oauth2:${GITLAB_TOKEN}@gitlab.com/BENDER_5000/fail2ban-setup.git"
+          git config user.name "GitHub Mirror Bot"
+          git config user.email "mirror@users.noreply.github.com"
+
+          # Make every branch and tag available locally.
+          git fetch --prune origin '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*' || true
+          # Fetch GitLab branches for fast-forward checks.
+          git fetch --prune --no-tags "$REMOTE" '+refs/heads/*:refs/remotes/mirror/*' || true
+
+          status=0
+
+          while IFS= read -r branch; do
+            [[ -n "$branch" ]] || continue
+            local_ref="refs/heads/$branch"
+            remote_ref="refs/remotes/mirror/$branch"
+
+            if git show-ref --verify --quiet "$remote_ref"; then
+              local_sha="$(git rev-parse "$local_ref")"
+              remote_sha="$(git rev-parse "$remote_ref")"
+              if [[ "$local_sha" == "$remote_sha" ]]; then
+                echo "skip: $branch is already in sync ($local_sha)"
+                continue
+              fi
+              if ! git merge-base --is-ancestor "$remote_sha" "$local_sha"; then
+                echo "::error::Branch $branch diverged. Refusing to force-push. Resolve it manually."
+                status=1
+                continue
+              fi
+            fi
+
+            echo "push: $branch -> GitLab"
+            git push "$REMOTE" "$local_ref:refs/heads/$branch"
+          done < <(git for-each-ref --format='%(refname:short)' refs/heads)
+
+          while IFS= read -r tag; do
+            [[ -n "$tag" ]] || continue
+            local_sha="$(git rev-parse "refs/tags/$tag")"
+            remote_sha="$(git ls-remote --tags "$REMOTE" "refs/tags/$tag" | awk '{print $1}' | head -n1 || true)"
+            if [[ "$local_sha" == "$remote_sha" ]]; then
+              echo "skip: tag $tag is already in sync"
+              continue
+            fi
+            if [[ -n "$remote_sha" ]]; then
+              echo "::error::Tag $tag already exists on GitLab with a different commit. Refusing to overwrite it."
+              status=1
+              continue
+            fi
+            echo "push: tag $tag -> GitLab"
+            git push "$REMOTE" "refs/tags/$tag:refs/tags/$tag"
+          done < <(git for-each-ref --format='%(refname:short)' refs/tags)
+
+          exit "$status"
